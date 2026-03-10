@@ -24,6 +24,7 @@ from flow3d.vis.utils import get_server
 from flow3d.vis.viewer import DynamicViewer
 from flow3d.normal_utils import depth_to_normal
 
+
 class Trainer:
     def __init__(
         self,
@@ -171,10 +172,8 @@ class Trainer:
 
         loss, stats, num_rays_per_step, num_rays_per_sec = self.compute_losses(batch)
         if loss.isnan():
-            guru.info(f"Loss is NaN at step {self.global_step}!!")
-            import ipdb
-
-            ipdb.set_trace()
+            guru.error(f"Loss is NaN at step {self.global_step}!!")
+            raise RuntimeError(f"NaN loss at step {self.global_step}")
         loss.backward()
 
         for opt in self.optimizers.values():
@@ -336,7 +335,6 @@ class Trainer:
             normal_loss = (1 - cos_sim).mean()
             loss += normal_loss * 0.05
 
-
         # RGB loss.
         rendered_imgs = cast(torch.Tensor, rendered_all["img"])
         if self.model.has_bg:
@@ -461,7 +459,6 @@ class Trainer:
             )
             loss += small_accel_loss_tracks * self.losses_cfg.w_smooth_tracks
 
-
         # Constrain the std of scales.
         # TODO: do we want to penalize before or after exp?
         loss += (
@@ -473,17 +470,12 @@ class Trainer:
                 self.losses_cfg.w_scale_var
                 * torch.var(torch.exp(self.model.bg.params["scales"]), dim=-1).mean()
             )
-        
-        if self.model.fg.params["means"].isnan().sum() > 0:
-            import ipdb
-            ipdb.set_trace()
-        # # sparsity loss
-        # loss += 0.01 * self.opacity_activation(self.opacities).abs().mean()
 
-        # Acceleration along ray direction should be small.
+        if self.model.fg.params["means"].isnan().any():
+            guru.error("NaN detected in fg means!")
+            raise RuntimeError("NaN in fg gaussian means")
+
         z_accel_loss = compute_z_acc_loss(means_fg_nbs, w2cs)
-
-
         loss += self.losses_cfg.w_z_accel * z_accel_loss
 
         # Prepare stats for logging.
@@ -596,6 +588,17 @@ class Trainer:
         assert (self.running_stats["vis_count"] > 0).any()
 
         cfg = self.optim_cfg
+        # Skip densification if already at max gaussian count
+        if (
+            cfg.max_num_gaussians > 0
+            and self.model.num_gaussians >= cfg.max_num_gaussians
+        ):
+            guru.info(
+                f"Skipping densification: {self.model.num_gaussians} gaussians "
+                f">= max {cfg.max_num_gaussians}"
+            )
+            return
+
         xys_grad_avg = self.running_stats["xys_grad_norm_acc"] / self.running_stats[
             "vis_count"
         ].clamp_min(1)

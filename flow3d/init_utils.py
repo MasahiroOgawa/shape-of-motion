@@ -37,6 +37,7 @@ def init_trainable_poses(w2cs: Tensor) -> CameraPoses:
 
     return CameraPoses(Rs, ts)
 
+
 def init_fg_from_tracks_3d(
     cano_t: int, tracks_3d: TrackObservations, motion_coefs: torch.Tensor
 ) -> GaussianParams:
@@ -274,7 +275,7 @@ def run_initial_optim(
     tracks_3d: TrackObservations,
     Ks: torch.Tensor,
     w2cs: torch.Tensor,
-    num_iters: int = 1000,
+    num_iters: int = 500,
     use_depth_range_loss: bool = False,
 ):
     """
@@ -578,6 +579,8 @@ def sample_initial_bases_centers(
         model = HDBSCAN(min_cluster_size=20, max_cluster_size=num_tracks // 4)
     model.fit(vel_dirs)
     labels = model.labels_
+    if hasattr(labels, "get"):
+        labels = labels.get()
     num_bases = labels.max().item() + 1
     sampled_centers = torch.stack(
         [

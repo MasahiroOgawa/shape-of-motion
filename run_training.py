@@ -1,3 +1,4 @@
+import gc
 import os
 import os.path as osp
 import shutil
@@ -16,27 +17,26 @@ from tqdm import tqdm
 from flow3d.configs import LossesConfig, OptimizerConfig, SceneLRConfig
 from flow3d.data import (
     BaseDataset,
-    DavisDataConfig,
     CustomDataConfig,
+    DavisDataConfig,
+    NvidiaDataConfig,
     get_train_val_datasets,
     iPhoneDataConfig,
-    NvidiaDataConfig,
 )
 from flow3d.data.utils import to_device
 from flow3d.init_utils import (
     init_bg,
     init_fg_from_tracks_3d,
     init_motion_params_with_procrustes,
+    init_trainable_poses,
     run_initial_optim,
     vis_init_params,
-    init_trainable_poses,
 )
 from flow3d.scene_model import SceneModel
 from flow3d.tensor_dataclass import StaticObservations, TrackObservations
 from flow3d.trainer import Trainer
 from flow3d.validator import Validator
 from flow3d.vis.utils import get_server
-from flow3d.params import CameraScales
 
 torch.set_float32_matmul_precision("high")
 
@@ -66,14 +66,14 @@ class TrainConfig:
     lr: SceneLRConfig
     loss: LossesConfig
     optim: OptimizerConfig
-    num_fg: int = 40_000
-    num_bg: int = 100_000
-    num_motion_bases: int = 10
+    num_fg: int = 5_000
+    num_bg: int = 10_000
+    num_motion_bases: int = 4
     num_epochs: int = 500
     port: int | None = None
-    vis_debug: bool = False 
-    batch_size: int = 8
-    num_dl_workers: int = 4
+    vis_debug: bool = False
+    batch_size: int = 1
+    num_dl_workers: int = 2
     validate_every: int = 50
     save_videos_every: int = 50
     use_2dgs: bool = False
@@ -115,11 +115,12 @@ def main(cfg: TrainConfig):
         port=cfg.port,
     )
 
+    num_workers = cfg.num_dl_workers
     train_loader = DataLoader(
         train_dataset,
         batch_size=cfg.batch_size,
-        num_workers=cfg.num_dl_workers,
-        persistent_workers=True,
+        num_workers=num_workers,
+        persistent_workers=num_workers > 0,
         collate_fn=BaseDataset.train_collate_fn,
     )
 
@@ -190,22 +191,35 @@ def initialize_and_checkpoint_model(
         vis=vis,
         port=port,
     )
+
+    # Free cupy/cuml GPU memory from initialization to prevent OOM during training
+    try:
+        import cupy as cp
+
+        cp.get_default_memory_pool().free_all_blocks()
+        cp.get_default_pinned_memory_pool().free_all_blocks()
+        guru.info("Freed cupy memory pool")
+    except Exception as e:
+        guru.warning(f"Failed to free cupy memory: {e}")
+    gc.collect()
+    torch.cuda.empty_cache()
+
     # run initial optimization
     Ks = train_dataset.get_Ks().to(device)
     w2cs = train_dataset.get_w2cs().to(device)
     run_initial_optim(fg_params, motion_bases, tracks_3d, Ks, w2cs)
+    torch.cuda.empty_cache()
     if vis and cfg.port is not None:
         server = get_server(port=cfg.port)
         vis_init_params(server, fg_params, motion_bases)
 
-
     camera_poses = init_trainable_poses(w2cs)
 
     model = SceneModel(
-        Ks, 
-        w2cs, 
-        fg_params, 
-        motion_bases, 
+        Ks,
+        w2cs,
+        fg_params,
+        motion_bases,
         camera_poses,
         bg_params,
         cfg.use_2dgs,
@@ -225,15 +239,12 @@ def init_model_from_tracks(
     port: int | None = None,
 ):
     tracks_3d = TrackObservations(*train_dataset.get_tracks_3d(num_fg))
-    print(
+    guru.info(
         f"{tracks_3d.xyz.shape=} {tracks_3d.visibles.shape=} "
         f"{tracks_3d.invisibles.shape=} {tracks_3d.confidences.shape} "
         f"{tracks_3d.colors.shape}"
     )
-    if not tracks_3d.check_sizes():
-        import ipdb
-
-        ipdb.set_trace()
+    assert tracks_3d.check_sizes(), "Track observation sizes are inconsistent"
 
     rot_type = "6d"
     cano_t = int(tracks_3d.visibles.sum(dim=0).argmax().item())

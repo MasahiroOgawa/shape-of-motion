@@ -25,14 +25,17 @@ class MotionLRConfig:
     rots: float = 1.6e-4
     transls: float = 1.6e-4
 
+
 @dataclass
 class CameraScalesLRConfig:
     camera_scales: float = 1e-4
+
 
 @dataclass
 class CameraPoseLRConfig:
     Rs: float = 1e-3
     ts: float = 1e-3
+
 
 @dataclass
 class SceneLRConfig:
@@ -76,6 +79,8 @@ class OptimizerConfig:
     densify_scale_threshold: float = 0.01
     densify_screen_threshold: float = 0.05
     stop_densify_steps: int = 15000
+    ### Max gaussians cap (prevents OOM on limited VRAM GPUs).
+    max_num_gaussians: int = 50_000
     ### Cull.
     cull_opacity_threshold: float = 0.1
     cull_scale_threshold: float = 0.5
