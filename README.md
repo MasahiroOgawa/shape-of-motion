@@ -41,19 +41,16 @@ python run_training.py \
 
 ## Installation
 
-```
+```bash
 git clone --recurse-submodules https://github.com/vye16/shape-of-motion
 cd shape-of-motion/
-conda create -n som python=3.10
-conda activate som
-```
 
-Update `requirements.txt` with correct CUDA version for PyTorch and cuUML,
-i.e., replacing `cu122` and `cu12` with your CUDA version.
-```
+# Install dependencies (requires uv: https://docs.astral.sh/uv/)
+uv venv --python 3.10
+uv sync
 
-pip install -r requirements.txt
-pip install git+https://github.com/nerfstudio-project/gsplat.git
+# gsplat requires torch at build time, install separately
+uv pip install --no-build-isolation "gsplat @ git+https://github.com/nerfstudio-project/gsplat.git"
 ```
 
 ## Usage

@@ -1,0 +1,56 @@
+[project]
+name = "shape-of-motion"
+version = "0.1.0"
+requires-python = ">=3.10,<3.11"
+dependencies = [
+    "torch>=2.2.0",
+    "torchvision>=0.17.0",
+    "viser",
+    "opencv-python",
+    "imageio",
+    "imageio-ffmpeg",
+    "matplotlib",
+    "tensorboard",
+    "nerfview",
+    "scikit-learn",
+    "jaxtyping",
+    "roma",
+    "pytorch-msssim",
+    "torchmetrics",
+    "splines==0.3.2",
+    "ninja",
+    "fsspec",
+    "loguru",
+    "ipdb",
+    "pyyaml",
+    "tyro",
+    "tqdm",
+    "cuml-cu12==24.12.*",
+]
+
+[project.optional-dependencies]
+preproc = [
+    "gdown",
+    "transformers",
+    "gradio",
+    "segment-anything @ git+https://github.com/facebookresearch/segment-anything.git",
+    "typing_extensions",
+    "mediapy",
+    "einshape",
+]
+dev = ["black==24.4.2", "isort==5.13.2"]
+
+[[tool.uv.index]]
+name = "pytorch-cu12"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu12" }
+torchvision = { index = "pytorch-cu12" }
+cuml-cu12 = { index = "nvidia" }
