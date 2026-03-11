@@ -55,19 +55,45 @@ uv pip install --no-build-isolation "gsplat @ git+https://github.com/nerfstudio-
 
 ## Usage
 
+### End-to-End Pipeline (Video to 4D)
+
+The easiest way to run the full pipeline from a single video:
+
+```bash
+uv run python run_4d.py --input my_video.mp4
+```
+
+This runs all steps automatically:
+1. **Extract frames** from the video
+2. **Create masks** — opens an interactive GUI where you click on foreground objects (the only manual step)
+3. **Preprocess** — depth estimation (UniDepth + DepthAnything), camera poses (DROID-SLAM), 2D tracking (BootsTAPIR)
+4. **Train** the 4D Gaussian model
+5. **Launch viewer** — interactive 4D viewer in the browser
+
+Options:
+```bash
+uv run python run_4d.py --input my_video.mp4 --name MyScene --gpu 0 --fps 10 --port 8080
+
+# Resume from a specific step (if prior steps are already done)
+uv run python run_4d.py --input my_video.mp4 --skip-to preprocess
+uv run python run_4d.py --input my_video.mp4 --skip-to train
+uv run python run_4d.py --input my_video.mp4 --skip-to view
+```
+
 ### Preprocessing
 
 We depend on the third-party libraries in `preproc` to generate depth maps, object masks, camera estimates, and 2D tracks.
 Please follow the guide in the [preprocessing README](./preproc/README.md).
 
-<!-- ### Fitting to a Video
+### Interactive 4D Viewer
 
-```python
-python run_training.py \
-  --work-dir <OUTPUT_DIR> \
-  data:davis \
-  --data.seq-name horsejump-low
-``` -->
+After training, launch an interactive viewer in the browser:
+
+```bash
+uv run python run_rendering.py --work-dir <OUTPUT_DIR> --port 8080
+```
+
+Then open `http://localhost:8080`. You can orbit the camera, scrub through time, toggle canonical view, and render tracks.
 
 ## Evaluation on iPhone Dataset
 First, download our processed iPhone dataset from [this](https://drive.google.com/drive/folders/1xJaFS_3027crk7u36cue7BseAX80abRe?usp=sharing) link. To train on a sequence, e.g., *paper-windmill*, run:
