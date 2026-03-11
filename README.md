@@ -65,7 +65,7 @@ uv run python scripts/run_4d.py --input my_video.mp4
 
 This runs all steps automatically:
 1. **Extract frames** from the video
-2. **Create masks** — opens an interactive GUI (see [Mask Annotation Guide](#mask-annotation-guide) below)
+2. **Create masks** — opens an interactive Gradio GUI where you click on foreground objects (the only manual step; follow the on-screen instructions)
 3. **Preprocess** — depth estimation (UniDepth + DepthAnything), camera poses (DROID-SLAM), 2D tracking (BootsTAPIR)
 4. **Train** the 4D Gaussian model
 5. **Launch viewer** — interactive 4D viewer in the browser
@@ -79,39 +79,6 @@ uv run python scripts/run_4d.py --input my_video.mp4 --skip-to preprocess
 uv run python scripts/run_4d.py --input my_video.mp4 --skip-to train
 uv run python scripts/run_4d.py --input my_video.mp4 --skip-to view
 ```
-
-### Mask Annotation Guide
-
-The mask annotation step is the **only manual step** in the pipeline. A Gradio web UI opens at `http://127.0.0.1:8890`. Follow these steps:
-
-**Step 1: Select image directory**
-- In the **"Image directories"** dropdown (middle column), select your sequence name (e.g. `droppingbottle`).
-- The first frame will appear in the **"Input Frame"** panel, and the frame slider will update.
-
-**Step 2: Pick a reference frame**
-- Use the **"Frame index"** slider to choose a frame where the foreground object is clearly visible.
-
-**Step 3: Extract SAM features**
-- Click **"Get SAM features"**. This loads Segment Anything (SAM) on the current frame. Wait for the instruction text to say "SAM features extracted".
-
-**Step 4: Click on the foreground object**
-- Click directly on the object in the **"Input Frame"** image. Green dots = positive (include), red dots = negative (exclude).
-  - By default you are in **positive** mode (green dots).
-  - To mark background areas to exclude, click **"Toggle negative"** first, then click on the background area.
-  - To switch back, click **"Toggle positive"**.
-- A colored mask preview appears in the **"Current selection"** panel (right column).
-- Click **"Clear points"** to start over if the mask looks wrong.
-
-**Step 5: (Optional) Add more objects**
-- If your scene has multiple foreground objects, click **"Add new mask"** to start annotating a second object with a different color.
-
-**Step 6: Track masks across all frames**
-- Click **"Submit mask for tracking"**. This runs XMem to propagate your mask to every frame. A preview video appears in the **"Masked video"** panel.
-
-**Step 7: Save and exit**
-- Check that the **"Path to save masks"** field shows the correct path (e.g. `.../masks/droppingbottle`).
-- Click **"Save masks"** to write mask PNGs to disk.
-- Go back to the terminal and press **Ctrl+C** to close the GUI and continue the pipeline.
 
 ### Preprocessing
 

@@ -12,6 +12,39 @@ from loguru import logger as guru
 from mask_utils import init_sam_model, init_tracker, track_masks
 
 
+STEP_INSTRUCTIONS = {
+    "start": (
+        "== STEP 1 / 7 == Select images.\n"
+        "If images are already loaded below, skip to Step 2.\n"
+        "Otherwise, select a sequence from 'Image directories' dropdown (middle column),\n"
+        "or select a video from 'Video files' dropdown (left column) and click 'Extract frames'."
+    ),
+    "loaded": (
+        "== STEP 2 / 7 == Choose a reference frame.\n"
+        "Use the 'Frame index' slider to pick a frame where the foreground object is clearly visible.\n"
+        "Then click the >>> 'Get SAM features' <<< button."
+    ),
+    "sam_ready": (
+        "== STEP 3 / 7 == Click on the foreground object.\n"
+        "Click directly on the object in the 'Input Frame' image below.\n"
+        "  - Green dots = include (positive, default mode)\n"
+        "  - Red dots = exclude (click 'Toggle negative' first)\n"
+        "A mask preview appears in 'Current selection' (right column).\n"
+        "Click 'Clear points' to retry. For multiple objects, click 'Add new mask' between them.\n"
+        "When the mask looks good, click >>> 'Submit mask for tracking' <<<."
+    ),
+    "tracked": (
+        "== STEP 6 / 7 == Review the tracked video.\n"
+        "Check the 'Masked video' panel. If it looks good, click >>> 'Save masks' <<<.\n"
+        "If not, click 'Clear points' and redo from Step 3."
+    ),
+    "saved": (
+        "== STEP 7 / 7 == Done!\n"
+        "Masks saved. Go back to the terminal and press Ctrl+C to continue the pipeline."
+    ),
+}
+
+
 class PromptGUI(object):
     def __init__(self, checkpoint_dir, sam_model_type, device):
         self.checkpoint_dir = checkpoint_dir
@@ -50,13 +83,15 @@ class PromptGUI(object):
     def clear_points(self) -> tuple[None, None, str]:
         self.selected_points.clear()
         self.selected_labels.clear()
-        message = "Cleared points, select new points to update mask"
-        return None, None, message
+        return None, None, STEP_INSTRUCTIONS["sam_ready"]
 
     def add_new_mask(self):
         self.cur_mask_idx += 1
         self.clear_points()
-        message = f"Creating new mask with index {self.cur_mask_idx}"
+        message = (
+            f"== STEP 4 / 7 == Adding mask #{self.cur_mask_idx}.\n"
+            "Click on the next object. When done, click >>> 'Submit mask for tracking' <<<."
+        )
         return None, message
 
     def make_index_mask(self):
@@ -69,9 +104,6 @@ class PromptGUI(object):
         return idx_mask
 
     def _clear_image(self):
-        """
-        clears image and all masks/logits for that image
-        """
         self.image = None
         self.cur_mask_idx = 0
         self.frame_index = 0
@@ -105,27 +137,19 @@ class PromptGUI(object):
         self.lazy_init_sam_model()
         assert self.sam_model is not None
         self.sam_model.set_image(self.image)
-        msg = (
-            "SAM features extracted. "
-            "Click points to update mask, and submit when ready to start tracking"
-        )
-        return msg, self.image
+        return STEP_INSTRUCTIONS["sam_ready"], self.image
 
     def set_positive(self) -> str:
         self.cur_label_val = 1.0
-        return "Selecting positive points. Submit the mask to start tracking"
+        return "Mode: POSITIVE (green). Click on the object to include."
 
     def set_negative(self) -> str:
         self.cur_label_val = 0.0
-        return "Selecting negative points. Submit the mask to start tracking"
+        return "Mode: NEGATIVE (red). Click on background to exclude."
 
     def add_point(self, img, i, j):
-        """
-        get the index mask of the objects
-        """
         self.selected_points.append([j, i])
         self.selected_labels.append(self.cur_label_val)
-        # masks, scores, logits if we want to update the mask
         mask, logit = self.get_sam_mask(
             img, np.array(self.selected_points), np.array(self.selected_labels)
         )
@@ -135,12 +159,6 @@ class PromptGUI(object):
         return idx_mask
 
     def get_sam_mask(self, img, input_points, input_labels):
-        """
-        :param img (np array) (H, W, 3)
-        :param input_points (np array) (N, 2)
-        :param input_labels (np array) (N,)
-        return (H, W) mask, (H, W) logits
-        """
         self.lazy_init_sam_model()
         assert self.sam_model is not None
         if self.sam_model.is_image_set is False:
@@ -163,10 +181,8 @@ class PromptGUI(object):
         assert self.tracker is not None
         self.tracker.clear_memory()
 
-        # read images and drop the alpha channel
         images = [iio.imread(p)[:, :, :3] for p in self.img_paths]
-        
-        # binary masks
+
         self.index_masks_all = track_masks(
             self.tracker, images, idx_mask, self.frame_index
         )
@@ -174,9 +190,7 @@ class PromptGUI(object):
         out_frames, self.color_masks_all = colorize_masks(images, self.index_masks_all)
         out_vidpath = "tracked_colors.mp4"
         iio.mimwrite(out_vidpath, out_frames)
-        message = f"Wrote current tracked video to {out_vidpath}."
-        instruct = "Save the masks to an output directory if it looks good!"
-        return out_vidpath, f"{message} {instruct}"
+        return out_vidpath, STEP_INSTRUCTIONS["tracked"]
 
     def save_masks_to_dir(self, output_dir: str) -> str:
         assert self.color_masks_all is not None
@@ -185,14 +199,29 @@ class PromptGUI(object):
             name = os.path.basename(img_path)
             out_path = f"{output_dir}/{name}"
             iio.imwrite(out_path, clr_mask)
-        message = f"Saved masks to {output_dir}!"
-        guru.debug(message)
-        return message
+        guru.debug(f"Saved masks to {output_dir}!")
+        return STEP_INSTRUCTIONS["saved"]
 
 
 def isimage(p):
     ext = os.path.splitext(p.lower())[-1]
     return ext in [".png", ".jpg", ".jpeg"]
+
+
+def has_images_directly(dir_path):
+    """Check if a directory contains image files directly (not in subdirs)."""
+    if not os.path.isdir(dir_path):
+        return False
+    return any(isimage(f) for f in os.listdir(dir_path))
+
+
+def list_subdirs(dir_path):
+    """List only subdirectories (not files) in a directory."""
+    if dir_path is None or not os.path.isdir(dir_path):
+        return []
+    return sorted(
+        d for d in os.listdir(dir_path) if os.path.isdir(os.path.join(dir_path, d))
+    )
 
 
 def draw_points(img, points, labels):
@@ -209,12 +238,7 @@ def get_hls_palette(
     lightness: float = 0.5,
     saturation: float = 0.7,
 ) -> np.ndarray:
-    """
-    returns (n_colors, 3) tensor of colors,
-        first is black and the rest are evenly spaced in HLS space
-    """
-    hues = np.linspace(0, 1, int(n_colors) + 1)[1:-1]  # (n_colors - 1)
-    # hues = (hues + first_hue) % 1
+    hues = np.linspace(0, 1, int(n_colors) + 1)[1:-1]
     palette = [(0.0, 0.0, 0.0)] + [
         colorsys.hls_to_rgb(h_i, lightness, saturation) for h_i in hues
     ]
@@ -258,14 +282,34 @@ def make_demo(
 ):
     prompts = PromptGUI(checkpoint_dir, sam_model_type, device)
 
-    start_instructions = (
-        "Select a video file to extract frames from, "
-        "or select an image directory with frames already extracted."
-    )
-    vid_root, img_root = (f"{root_dir}/{vid_name}", f"{root_dir}/{img_name}")
-    with gr.Blocks() as demo:
+    vid_root = f"{root_dir}/{vid_name}"
+    img_root = f"{root_dir}/{img_name}"
+
+    # Auto-detect: images directly in img_root (no subdirectories)?
+    direct_images = has_images_directly(img_root)
+    if direct_images:
+        # Images are directly in root_dir/images/ (e.g. from run_4d.py)
+        num_imgs = prompts.set_img_dir(img_root)
+        auto_loaded = num_imgs > 0
+        start_instructions = (
+            f"== STEP 2 / 7 == {num_imgs} images auto-loaded.\n"
+            "Use the 'Frame index' slider to pick a frame where the foreground "
+            "object is clearly visible.\n"
+            "Then click >>> 'Get SAM features' <<<."
+        )
+        # For direct layout, masks go in root_dir/masks/ (no seq subdir)
+        auto_mask_dir = f"{root_dir}/{mask_name}"
+    else:
+        auto_loaded = False
+        start_instructions = STEP_INSTRUCTIONS["start"]
+        auto_mask_dir = None
+
+    with gr.Blocks(title="Mask Annotation Tool") as demo:
         instruction = gr.Textbox(
-            start_instructions, label="Instruction", interactive=False
+            start_instructions,
+            label=">>> INSTRUCTION (follow these steps) <<<",
+            interactive=False,
+            lines=4,
         )
         with gr.Row():
             root_dir_field = gr.Text(root_dir, label="Dataset root directory")
@@ -288,23 +332,29 @@ def make_demo(
                     extract_button = gr.Button("Extract frames")
 
             with gr.Column():
-                img_dirs = listdir(img_root)
+                img_dirs = list_subdirs(img_root) if not direct_images else []
                 img_dirs_field = gr.Dropdown(
-                    label="Image directories", choices=img_dirs
+                    label="Image directories", choices=img_dirs,
+                    visible=not direct_images,
                 )
                 img_dir_field = gr.Text(
-                    None, label="Input directory", interactive=False
+                    img_root if direct_images else None,
+                    label="Input directory",
+                    interactive=False,
                 )
                 frame_index = gr.Slider(
                     label="Frame index",
                     minimum=0,
-                    maximum=len(prompts.img_paths) - 1,
+                    maximum=max(len(prompts.img_paths) - 1, 0),
                     value=0,
                     step=1,
                 )
-                sam_button = gr.Button("Get SAM features")
+                sam_button = gr.Button(
+                    ">>> Get SAM features <<<",
+                    variant="primary",
+                )
                 input_image = gr.Image(
-                    prompts.set_input_image(0),
+                    prompts.set_input_image(0) if auto_loaded else None,
                     label="Input Frame",
                     every=1,
                 )
@@ -316,12 +366,20 @@ def make_demo(
             with gr.Column():
                 output_img = gr.Image(label="Current selection")
                 add_button = gr.Button("Add new mask")
-                submit_button = gr.Button("Submit mask for tracking")
+                submit_button = gr.Button(
+                    ">>> Submit mask for tracking <<<",
+                    variant="primary",
+                )
                 final_video = gr.Video(label="Masked video")
                 mask_dir_field = gr.Text(
-                    None, label="Path to save masks", interactive=False
+                    auto_mask_dir,
+                    label="Path to save masks",
+                    interactive=False,
                 )
-                save_button = gr.Button("Save masks")
+                save_button = gr.Button(
+                    ">>> Save masks <<<",
+                    variant="primary",
+                )
 
         def update_vid_root(root_dir, vid_name):
             vid_root = f"{root_dir}/{vid_name}"
@@ -331,12 +389,14 @@ def make_demo(
 
         def update_img_root(root_dir, img_name):
             img_root = f"{root_dir}/{img_name}"
-            img_dirs = listdir(img_root)
+            img_dirs = list_subdirs(img_root)
             guru.debug(f"Updating img dirs: {img_dirs=}")
             return img_root, img_dirs
 
         def update_mask_dir(root_dir, mask_name, seq_name):
-            return f"{root_dir}/{mask_name}/{seq_name}"
+            if seq_name:
+                return f"{root_dir}/{mask_name}/{seq_name}"
+            return f"{root_dir}/{mask_name}"
 
         def update_root_paths(root_dir, vid_name, img_name, mask_name, seq_name):
             return (
@@ -374,7 +434,7 @@ def make_demo(
             print(cmd)
             subprocess.call(cmd, shell=True)
             img_root = f"{root_dir}/{img_name}"
-            img_dirs = listdir(img_root)
+            img_dirs = list_subdirs(img_root)
             return out_dir, img_dirs
 
         def select_image_dir(root_dir, img_name, seq_name):
@@ -383,13 +443,13 @@ def make_demo(
             return seq_name, img_dir
 
         def update_image_dir(root_dir, img_name, seq_name):
-            img_dir = f"{root_dir}/{img_name}/{seq_name}"
+            if seq_name:
+                img_dir = f"{root_dir}/{img_name}/{seq_name}"
+            else:
+                img_dir = f"{root_dir}/{img_name}"
             num_imgs = prompts.set_img_dir(img_dir)
             slider = gr.Slider(minimum=0, maximum=num_imgs - 1, value=0, step=1)
-            message = (
-                f"Loaded {num_imgs} images from {img_dir}. Choose a frame to run SAM!"
-            )
-            return slider, message
+            return slider, STEP_INSTRUCTIONS["loaded"]
 
         def get_select_coords(img, evt: gr.SelectData):
             i = evt.index[1]  # type: ignore
@@ -403,7 +463,6 @@ def make_demo(
             return out
 
         # update the root directory
-        # and associated video, image, and mask root directories
         root_dir_field.submit(
             update_root_paths,
             [
