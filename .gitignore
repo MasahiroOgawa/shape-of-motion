@@ -4,6 +4,7 @@
 outputs/
 work_dirs/
 *__pycache__*
+*.egg-info/
 .vscode/
 .envrc
 .bak/

@@ -26,7 +26,15 @@ dependencies = [
     "tyro",
     "tqdm",
     "cuml-cu12==24.12.*",
+    "gsplat==1.4.0",
 ]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["flow3d*"]
 
 [project.optional-dependencies]
 preproc = [

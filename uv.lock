@@ -689,6 +689,22 @@ wheels = [
 ]
 
 [[package]]
+name = "gsplat"
+version = "1.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jaxtyping" },
+    { name = "ninja" },
+    { name = "numpy" },
+    { name = "rich" },
+    { name = "torch" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/58/a9/f2a40a8fbe6f53ed49934cbfe44045d4cb131ae514a2b113458bcaf567b0/gsplat-1.4.0.tar.gz", hash = "sha256:8aa81a785e0daf3ed60d0b9930a56c0f337280e6989351d1f1b74e21cf190160", size = 105355 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/23/69/2e0eff91272e7b03edac615e00d63fba3b20e831452cbf63bd77cbab9c7a/gsplat-1.4.0-py3-none-any.whl", hash = "sha256:283d96724a8e41af4b338a2882285845ef2e04f3abcdb158bfbe9d515a64cdf0", size = 6462853 },
+]
+
+[[package]]
 name = "h11"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2319,10 +2335,11 @@ wheels = [
 [[package]]
 name = "shape-of-motion"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "cuml-cu12" },
     { name = "fsspec" },
+    { name = "gsplat" },
     { name = "imageio" },
     { name = "imageio-ffmpeg" },
     { name = "ipdb" },
@@ -2369,6 +2386,7 @@ requires-dist = [
     { name = "fsspec" },
     { name = "gdown", marker = "extra == 'preproc'" },
     { name = "gradio", marker = "extra == 'preproc'" },
+    { name = "gsplat", specifier = "==1.4.0" },
     { name = "imageio" },
     { name = "imageio-ffmpeg" },
     { name = "ipdb" },
