@@ -2,10 +2,10 @@
 End-to-end 4D reconstruction from a single video.
 
 Usage:
-    uv run python run_4d.py --input my_video.mp4
-    uv run python run_4d.py --input my_video.mp4 --name MyScene --gpu 0
-    uv run python run_4d.py --input my_video.mp4 --skip-to train   # resume from training
-    uv run python run_4d.py --input my_video.mp4 --skip-to view    # just launch viewer
+    uv run python scripts/run_4d.py --input my_video.mp4
+    uv run python scripts/run_4d.py --input my_video.mp4 --name MyScene --gpu 0
+    uv run python scripts/run_4d.py --input my_video.mp4 --skip-to train
+    uv run python scripts/run_4d.py --input my_video.mp4 --skip-to view
 """
 
 import argparse
@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 PREPROC = ROOT / "preproc"
 
 
@@ -81,7 +81,7 @@ def step_train(data_dir: Path, work_dir: Path, num_epochs: int, port: int | None
     """Train the 4D Gaussian model."""
     port_arg = f"--port {port}" if port else ""
     run(
-        f"uv run python run_training.py "
+        f"uv run python scripts/run_training.py "
         f"--work-dir {work_dir} "
         f"--num-epochs {num_epochs} "
         f"{port_arg} "
@@ -94,7 +94,7 @@ def step_view(work_dir: Path, port: int):
     """Launch interactive 4D viewer."""
     print(f"\n[run_4d] Launching viewer at http://localhost:{port}")
     run(
-        f"uv run python run_rendering.py --work-dir {work_dir} --port {port}",
+        f"uv run python scripts/run_rendering.py --work-dir {work_dir} --port {port}",
         cwd=str(ROOT),
     )
 
@@ -143,7 +143,6 @@ def main():
     print(f"[run_4d] Work dir: {work_dir}")
     print(f"[run_4d] GPU:      {args.gpu}")
 
-    steps = ["frames", "masks", "preprocess", "train", "view"]
     skip_to = args.skip_to
     if skip_to:
         # Map skip_to to step index

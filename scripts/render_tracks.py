@@ -20,7 +20,7 @@ from flow3d.vis.utils import (
     get_server,
     make_video_divisble,
 )
-from run_video import VideoConfig
+from scripts.run_video import VideoConfig
 
 torch.set_float32_matmul_precision("high")
 

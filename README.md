@@ -14,7 +14,7 @@ We have preprocessed nvidia dataset and custom dataset which can be found [here]
 ### Training
 To train nvidia dataset
 ```
-python run_training.py \
+python scripts/run_training.py \
   --work-dir <OUTPUT_DIR> \
   data:nvidia \
   --data.data-dir </path/to/data>
@@ -22,7 +22,7 @@ python run_training.py \
 
 To train custom dataset
 ```
-python run_training.py \
+python scripts/run_training.py \
   --work-dir <OUTPUT_DIR> \
   data:custom \
   --data.data-dir </path/to/data>
@@ -32,7 +32,7 @@ python run_training.py \
 To get better scene geometry, we use 2D Gaussian Splatting:
 
 ```
-python run_training.py \
+python scripts/run_training.py \
   --work-dir <OUTPUT_DIR> \
   --use_2dgs
   data:custom \
@@ -60,7 +60,7 @@ uv pip install --no-build-isolation "gsplat @ git+https://github.com/nerfstudio-
 The easiest way to run the full pipeline from a single video:
 
 ```bash
-uv run python run_4d.py --input my_video.mp4
+uv run python scripts/run_4d.py --input my_video.mp4
 ```
 
 This runs all steps automatically:
@@ -72,12 +72,12 @@ This runs all steps automatically:
 
 Options:
 ```bash
-uv run python run_4d.py --input my_video.mp4 --name MyScene --gpu 0 --fps 10 --port 8080
+uv run python scripts/run_4d.py --input my_video.mp4 --name MyScene --gpu 0 --fps 10 --port 8080
 
 # Resume from a specific step (if prior steps are already done)
-uv run python run_4d.py --input my_video.mp4 --skip-to preprocess
-uv run python run_4d.py --input my_video.mp4 --skip-to train
-uv run python run_4d.py --input my_video.mp4 --skip-to view
+uv run python scripts/run_4d.py --input my_video.mp4 --skip-to preprocess
+uv run python scripts/run_4d.py --input my_video.mp4 --skip-to train
+uv run python scripts/run_4d.py --input my_video.mp4 --skip-to view
 ```
 
 ### Preprocessing
@@ -90,7 +90,7 @@ Please follow the guide in the [preprocessing README](./preproc/README.md).
 After training, launch an interactive viewer in the browser:
 
 ```bash
-uv run python run_rendering.py --work-dir <OUTPUT_DIR> --port 8080
+uv run python scripts/run_rendering.py --work-dir <OUTPUT_DIR> --port 8080
 ```
 
 Then open `http://localhost:8080`. You can orbit the camera, scrub through time, toggle canonical view, and render tracks.
@@ -99,7 +99,7 @@ Then open `http://localhost:8080`. You can orbit the camera, scrub through time,
 First, download our processed iPhone dataset from [this](https://drive.google.com/drive/folders/1xJaFS_3027crk7u36cue7BseAX80abRe?usp=sharing) link. To train on a sequence, e.g., *paper-windmill*, run:
 
 ```python
-python run_training.py \
+python scripts/run_training.py \
   --work-dir <OUTPUT_DIR> \
   --port <PORT> \
   data:iphone \

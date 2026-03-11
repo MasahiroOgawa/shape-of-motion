@@ -20,7 +20,7 @@ def main(
         for i, seq_name in enumerate(seqs):
             device = devices[i % len(devices)]
             cmd = (
-                f"CUDA_VISIBLE_DEVICES={device} python run_training.py "
+                f"CUDA_VISIBLE_DEVICES={device} python scripts/run_training.py "
                 f"--work-dir {work_root}/{seq_name} data:davis "
                 f"--data.seq_name {seq_name} --data.root_dir {davis_root} "
                 f"--data.res {res} --data.depth_type {depth_type}"
