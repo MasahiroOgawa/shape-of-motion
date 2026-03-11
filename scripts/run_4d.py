@@ -58,7 +58,7 @@ def step_create_masks(data_dir: Path, gpu: int):
     print("=" * 60 + "\n")
 
     run(
-        f"CUDA_VISIBLE_DEVICES={gpu} python mask_app.py --root_dir {data_dir}",
+        f"CUDA_VISIBLE_DEVICES={gpu} uv run python mask_app.py --root_dir {data_dir}",
         cwd=str(PREPROC),
         check=False,  # User exits with Ctrl+C
     )
@@ -72,7 +72,7 @@ def step_preprocess(data_dir: Path, gpu: int):
     """Run depth estimation, SLAM, and tracking."""
     img_dir = data_dir / "images"
     run(
-        f"python process_custom.py --img-dirs {img_dir} --gpus {gpu}",
+        f"uv run python process_custom.py --img-dirs {img_dir} --gpus {gpu}",
         cwd=str(PREPROC),
     )
 
