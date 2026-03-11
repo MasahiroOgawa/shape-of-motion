@@ -80,7 +80,7 @@ class OptimizerConfig:
     densify_screen_threshold: float = 0.05
     stop_densify_steps: int = 15000
     ### Max gaussians cap (prevents OOM on limited VRAM GPUs).
-    max_num_gaussians: int = 50_000
+    max_num_gaussians: int = 12_000
     ### Cull.
     cull_opacity_threshold: float = 0.1
     cull_scale_threshold: float = 0.5

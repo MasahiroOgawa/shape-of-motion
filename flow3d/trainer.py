@@ -164,17 +164,53 @@ class Trainer:
         img = self.model.render(t, w2c[None], K[None], img_wh)["img"][0]
         return (img.cpu().numpy() * 255.0).astype(np.uint8)
 
+    def _release_viewer_lock(self):
+        if self.viewer is not None:
+            self.viewer.lock.release()
+
+    def _abort_step(self):
+        """Release viewer lock, advance step counter, and return NaN."""
+        self._release_viewer_lock()
+        self.global_step += 1
+        return float("nan")
+
     def train_step(self, batch):
         if self.viewer is not None:
-            while self.viewer.state.status == "paused":
+            while self.viewer.state == "paused":
                 time.sleep(0.1)
             self.viewer.lock.acquire()
 
-        loss, stats, num_rays_per_step, num_rays_per_sec = self.compute_losses(batch)
+        # Proactive memory guard: skip step if GPU memory is critically high
+        # to prevent CUDA hangs/freezes (worse than OOM errors)
+        if torch.cuda.is_available():
+            mem_used = torch.cuda.memory_allocated()
+            mem_total = torch.cuda.get_device_properties(0).total_memory
+            mem_pct = mem_used / mem_total * 100
+            if mem_pct > 85:
+                guru.warning(
+                    f"GPU memory critical ({mem_pct:.0f}%), "
+                    f"clearing cache and skipping step {self.global_step}"
+                )
+                torch.cuda.empty_cache()
+                return self._abort_step()
+
+        try:
+            loss, stats, num_rays_per_step, num_rays_per_sec = self.compute_losses(batch)
+        except torch.cuda.OutOfMemoryError:
+            guru.error(f"CUDA OOM in forward pass at step {self.global_step}!")
+            torch.cuda.empty_cache()
+            return self._abort_step()
         if loss.isnan():
             guru.error(f"Loss is NaN at step {self.global_step}!!")
             raise RuntimeError(f"NaN loss at step {self.global_step}")
-        loss.backward()
+        try:
+            loss.backward()
+        except torch.cuda.OutOfMemoryError:
+            guru.error(f"CUDA OOM in backward pass at step {self.global_step}!")
+            torch.cuda.empty_cache()
+            for opt in self.optimizers.values():
+                opt.zero_grad(set_to_none=True)
+            return self._abort_step()
 
         for opt in self.optimizers.values():
             opt.step()
@@ -184,11 +220,24 @@ class Trainer:
 
         self.log_dict(stats)
         self.global_step += 1
+
+        # Periodic GPU memory cleanup to prevent OOM freeze
+        if self.global_step % 25 == 0 and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            if self.global_step % 100 == 0:
+                mem_used = torch.cuda.memory_allocated() / 1024**2
+                mem_reserved = torch.cuda.memory_reserved() / 1024**2
+                guru.info(
+                    f"Step {self.global_step}: GPU mem {mem_used:.0f}MB allocated, "
+                    f"{mem_reserved:.0f}MB reserved, "
+                    f"{self.model.num_gaussians} gaussians"
+                )
+
         self.run_control_steps()
 
         if self.viewer is not None:
             self.viewer.lock.release()
-            self.viewer.state.num_train_rays_per_sec = num_rays_per_sec
+            self.viewer.render_tab_state.num_train_rays_per_sec = num_rays_per_sec
             if self.viewer.mode == "training":
                 self.viewer.update(self.global_step, num_rays_per_step)
 
@@ -599,6 +648,18 @@ class Trainer:
             )
             return
 
+        # Check GPU memory - skip densification if memory is tight (>70% used)
+        if torch.cuda.is_available():
+            mem_used = torch.cuda.memory_allocated()
+            mem_total = torch.cuda.get_device_properties(0).total_memory
+            mem_pct = mem_used / mem_total * 100
+            if mem_pct > 70:
+                guru.warning(
+                    f"Skipping densification: GPU memory {mem_pct:.0f}% used "
+                    f"({mem_used // 1024**2}MB/{mem_total // 1024**2}MB)"
+                )
+                return
+
         xys_grad_avg = self.running_stats["xys_grad_norm_acc"] / self.running_stats[
             "vis_count"
         ].clamp_min(1)
@@ -615,6 +676,32 @@ class Trainer:
 
         should_split = is_grad_too_high & (is_scale_too_big | is_radius_too_big)
         should_dup = is_grad_too_high & ~is_scale_too_big
+
+        # Clamp to stay within gaussian budget
+        if cfg.max_num_gaussians > 0:
+            current = self.model.num_gaussians
+            # splits add net +1 each (remove 1, add 2), dups add +1 each
+            net_new = int(should_split.sum().item()) + int(should_dup.sum().item())
+            budget = max(0, cfg.max_num_gaussians - current)
+            if net_new > budget:
+                guru.info(
+                    f"Clamping densification: {net_new} requested, budget {budget}"
+                )
+                if budget == 0:
+                    return
+                # Prioritize splits over dups; reduce dups first
+                split_count = int(should_split.sum().item())
+                if split_count <= budget:
+                    # Keep all splits, reduce dups
+                    dup_budget = budget - split_count
+                    dup_indices = torch.where(should_dup)[0]
+                    if len(dup_indices) > dup_budget:
+                        should_dup[dup_indices[dup_budget:]] = False
+                else:
+                    # Even splits alone exceed budget, reduce splits and drop all dups
+                    should_dup.zero_()
+                    split_indices = torch.where(should_split)[0]
+                    should_split[split_indices[budget:]] = False
 
         num_fg = self.model.num_fg_gaussians
         should_fg_split = should_split[:num_fg]

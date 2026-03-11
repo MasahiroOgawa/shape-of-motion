@@ -4,10 +4,9 @@ from typing import Callable, Literal, Optional, Tuple, Union
 import numpy as np
 from jaxtyping import Float32, UInt8
 from nerfview import CameraState, Viewer
-from viser import Icon, ViserServer
+from viser import ViserServer
 
 from flow3d.vis.playback_panel import add_gui_playback_group
-from flow3d.vis.render_panel import populate_render_tab
 
 
 class DynamicViewer(Viewer):
@@ -27,10 +26,10 @@ class DynamicViewer(Viewer):
     ):
         self.num_frames = num_frames
         self.work_dir = Path(work_dir)
-        super().__init__(server, render_fn, mode)
+        super().__init__(server, render_fn, output_dir=self.work_dir, mode=mode)
 
-    def _define_guis(self):
-        super()._define_guis()
+    def _init_rendering_tab(self):
+        super()._init_rendering_tab()
         server = self.server
         self._time_folder = server.gui.add_folder("Time")
         with self._time_folder:
@@ -61,9 +60,3 @@ class DynamicViewer(Viewer):
 
         self._render_track_checkbox = server.gui.add_checkbox("Render tracks", False)
         self._render_track_checkbox.on_update(self.rerender)
-
-        tabs = server.gui.add_tab_group()
-        with tabs.add_tab("Render", Icon.CAMERA):
-            self.render_tab_state = populate_render_tab(
-                server, Path(self.work_dir) / "camera_paths", self._playback_guis[0]
-            )

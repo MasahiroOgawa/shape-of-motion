@@ -157,6 +157,9 @@ def main(cfg: TrainConfig):
         for batch in train_loader:
             batch = to_device(batch, device)
             loss = trainer.train_step(batch)
+            if np.isnan(loss):
+                guru.warning(f"OOM recovery at step {trainer.global_step}, skipping")
+                continue
             pbar.set_description(f"Loss: {loss:.6f}")
 
         if validator is not None:
