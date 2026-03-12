@@ -61,8 +61,8 @@ Before running the pipeline on custom videos, download the required model checkp
 cd preproc
 mkdir -p checkpoints/saves
 
-# SAM (Segment Anything) - for interactive mask annotation
-wget -P checkpoints/ https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth
+# SAM (Segment Anything) - for interactive mask annotation (vit_b is default, lighter on VRAM)
+wget -P checkpoints/ https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth
 
 # XMem - for mask propagation across frames
 wget -P checkpoints/saves/ https://github.com/hkchengrex/XMem/releases/download/v1.0/XMem-s012.pth

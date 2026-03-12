@@ -194,6 +194,12 @@ class PromptGUI(object):
                 "then click 'Submit mask for tracking'."
             )
         idx_mask = self.make_index_mask()
+        # Free SAM to reclaim GPU memory before loading XMem tracker
+        if self.sam_model is not None:
+            self.sam_model.model.cpu()
+            del self.sam_model
+            self.sam_model = None
+            torch.cuda.empty_cache()
         try:
             self.lazy_init_tracker()
         except Exception as e:
@@ -207,10 +213,34 @@ class PromptGUI(object):
         self.tracker.clear_memory()
 
         images = [iio.imread(p)[:, :, :3] for p in self.img_paths]
+        orig_h, orig_w = images[0].shape[:2]
+
+        # Downscale for tracking if images are large (saves GPU memory)
+        max_track_dim = 720
+        scale = min(max_track_dim / max(orig_h, orig_w), 1.0)
+        if scale < 1.0:
+            track_h, track_w = int(orig_h * scale), int(orig_w * scale)
+            track_images = [
+                cv2.resize(img, (track_w, track_h)) for img in images
+            ]
+            track_mask = cv2.resize(
+                idx_mask, (track_w, track_h),
+                interpolation=cv2.INTER_NEAREST,
+            )
+        else:
+            track_images = images
+            track_mask = idx_mask
 
         self.index_masks_all = track_masks(
-            self.tracker, images, idx_mask, self.frame_index
+            self.tracker, track_images, track_mask, self.frame_index
         )
+
+        # Upscale masks back to original resolution
+        if scale < 1.0:
+            self.index_masks_all = [
+                cv2.resize(m, (orig_w, orig_h), interpolation=cv2.INTER_NEAREST)
+                for m in self.index_masks_all
+            ]
 
         out_frames, self.color_masks_all = colorize_masks(images, self.index_masks_all)
         out_vidpath = "tracked_colors.mp4"
@@ -587,7 +617,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8890)
     parser.add_argument("--checkpoint_dir", type=str, default="checkpoints")
-    parser.add_argument("--sam_model_type", type=str, default="vit_h")
+    parser.add_argument("--sam_model_type", type=str, default="vit_b")
     parser.add_argument("--root_dir", type=str, required=True)
     parser.add_argument("--vid_name", type=str, default="videos")
     parser.add_argument("--img_name", type=str, default="images")
