@@ -186,9 +186,23 @@ class PromptGUI(object):
         idx_sel = np.argmax(scores)
         return masks[idx_sel], logits[idx_sel]
 
-    def run_tracker(self) -> tuple[str, str]:
+    def run_tracker(self) -> tuple[str | None, str]:
+        if len(self.cur_masks) == 0:
+            return None, (
+                "ERROR: No mask selected yet.\n"
+                "Click on the foreground object first to create a mask,\n"
+                "then click 'Submit mask for tracking'."
+            )
         idx_mask = self.make_index_mask()
-        self.lazy_init_tracker()
+        try:
+            self.lazy_init_tracker()
+        except Exception as e:
+            return None, (
+                f"ERROR: Failed to load XMem tracker: {e}\n"
+                "Make sure checkpoints/saves/XMem-s012.pth exists.\n"
+                "Run: wget -P preproc/checkpoints/saves/ "
+                "https://github.com/hkchengrex/XMem/releases/download/v1.0/XMem-s012.pth"
+            )
         assert self.tracker is not None
         self.tracker.clear_memory()
 
