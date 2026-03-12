@@ -20,25 +20,30 @@ def main(
         raise ValueError(f"Expecting {img_name} in {img_dirs[0]}")
 
     mono_depth_name = mono_depth_model.replace("-", "_")
+    futures = []
     with ProcessPoolExecutor(max_workers=len(gpus)) as exc:
         for i, img_dir in enumerate(img_dirs):
             gpu = gpus[i % len(gpus)]
             img_dir = img_dir.rstrip("/")
-            exc.submit(
-                process_sequence,
-                gpu,
-                img_dir,
-                img_dir.replace(img_name, mask_name),
-                img_dir.replace(img_name, metric_depth_name),
-                img_dir.replace(img_name, intrins_name),
-                img_dir.replace(img_name, mono_depth_name),
-                img_dir.replace(img_name, f"aligned_{mono_depth_name}"),
-                img_dir.replace(img_name, slam_name),
-                img_dir.replace(img_name, track_model),
-                mono_depth_model,
-                track_model,
-                tapir_torch,
+            futures.append(
+                exc.submit(
+                    process_sequence,
+                    gpu,
+                    img_dir,
+                    img_dir.replace(img_name, mask_name),
+                    img_dir.replace(img_name, metric_depth_name),
+                    img_dir.replace(img_name, intrins_name),
+                    img_dir.replace(img_name, mono_depth_name),
+                    img_dir.replace(img_name, f"aligned_{mono_depth_name}"),
+                    img_dir.replace(img_name, slam_name),
+                    img_dir.replace(img_name, track_model),
+                    mono_depth_model,
+                    track_model,
+                    tapir_torch,
+                )
             )
+    for f in futures:
+        f.result()  # re-raise any exception from subprocess
 
 
 def process_sequence(
@@ -55,35 +60,40 @@ def process_sequence(
     track_model: str = "bootstapir",
     tapir_torch: bool = True,
 ):
-    dev_arg = f"CUDA_VISIBLE_DEVICES={gpu}"
+    dev_arg = f"CUDA_VISIBLE_DEVICES={gpu} PYTHONPATH=$(pwd)/UniDepth:$PYTHONPATH"
 
-    metric_depth_cmd = (
+    def run_step(cmd, name):
+        print(f"\n[process] Running: {name}")
+        print(cmd)
+        ret = subprocess.call(cmd, shell=True, executable="/bin/bash")
+        if ret != 0:
+            raise RuntimeError(f"[process] FAILED ({ret}): {name}\n  cmd: {cmd}")
+
+    run_step(
         f"{dev_arg} uv run python compute_metric_depth.py --img-dir {img_dir} "
-        f"--depth-dir {metric_depth_dir} --intrins-file {intrins_name}.json"
+        f"--depth-dir {metric_depth_dir} --intrins-file {intrins_name}.json",
+        "metric depth (UniDepth)",
     )
-    subprocess.call(metric_depth_cmd, shell=True, executable="/bin/bash")
 
-    mono_depth_cmd = (
+    run_step(
         f"{dev_arg} uv run python compute_depth.py --img_dir {img_dir} "
         f"--out_raw_dir {mono_depth_dir} --out_aligned_dir {aligned_depth_dir} "
-        f"--model {depth_model} --metric_dir {metric_depth_dir}"
+        f"--model {depth_model} --metric_dir {metric_depth_dir}",
+        "mono depth (Depth Anything)",
     )
-    print(mono_depth_cmd)
-    subprocess.call(mono_depth_cmd, shell=True, executable="/bin/bash")
 
-    slam_cmd = (
+    run_step(
         f"{dev_arg} uv run python recon_with_depth.py --img_dir {img_dir} "
-        f"--calib {intrins_name}.json --depth_dir {aligned_depth_dir} --out_path {slam_path}"
+        f"--calib {intrins_name}.json --depth_dir {aligned_depth_dir} --out_path {slam_path}",
+        "SLAM (DROID-SLAM)",
     )
-    print(slam_cmd)
-    subprocess.call(slam_cmd, shell=True, executable="/bin/bash")
 
     track_script = "compute_tracks_torch.py" if tapir_torch else "compute_tracks_jax.py"
-    track_cmd = (
+    run_step(
         f"{dev_arg} uv run python {track_script} --image_dir {img_dir} "
-        f"--mask_dir {mask_dir} --out_dir {track_dir} --model_type {track_model}"
+        f"--mask_dir {mask_dir} --out_dir {track_dir} --model_type {track_model}",
+        "tracking (BootsTAPIR)",
     )
-    subprocess.call(track_cmd, shell=True, executable="/bin/bash")
 
 
 if __name__ == "__main__":

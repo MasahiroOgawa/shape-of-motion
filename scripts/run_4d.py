@@ -9,7 +9,6 @@ Usage:
 """
 
 import argparse
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -29,14 +28,24 @@ def run(cmd: str, cwd: str | None = None, check: bool = True):
         sys.exit(1)
 
 
-def step_extract_frames(video_path: Path, img_dir: Path, fps: int | None):
+def step_extract_frames(
+    video_path: Path, img_dir: Path, fps: int | None, max_dim: int | None
+):
     """Extract frames from video using ffmpeg."""
     if img_dir.exists() and any(img_dir.iterdir()):
         print(f"[run_4d] Frames already exist at {img_dir}, skipping extraction.")
         return
     img_dir.mkdir(parents=True, exist_ok=True)
-    fps_filter = f"-vf fps={fps}" if fps else ""
-    run(f"ffmpeg -i {video_path} {fps_filter} -q:v 2 {img_dir}/%05d.png")
+    filters = []
+    if fps:
+        filters.append(f"fps={fps}")
+    if max_dim:
+        # Scale so the longer side <= max_dim, preserve aspect ratio, ensure even dims
+        filters.append(
+            f"scale='if(gte(iw,ih),min({max_dim},iw),-2)':'if(gte(iw,ih),-2,min({max_dim},ih))'"
+        )
+    vf = f"-vf \"{','.join(filters)}\"" if filters else ""
+    run(f"ffmpeg -i {video_path} {vf} -q:v 2 {img_dir}/%05d.png")
 
 
 def step_create_masks(data_dir: Path, gpu: int):
@@ -75,6 +84,24 @@ def step_preprocess(data_dir: Path, gpu: int):
         cwd=str(PREPROC),
     )
 
+    # Verify critical preprocessing outputs exist
+    required = {
+        "droid_recon.npy": "DROID-SLAM camera poses",
+        "aligned_depth_anything": "aligned depth maps",
+    }
+    missing = [
+        f"  - {name} ({desc})"
+        for name, desc in required.items()
+        if not (data_dir / name).exists()
+    ]
+    if missing:
+        print(f"\n[run_4d] WARNING: Preprocessing incomplete. Missing:")
+        for m in missing:
+            print(m)
+        print("Check that preproc submodules are built and checkpoints are downloaded.")
+        print("See: preproc/setup_dependencies.sh\n")
+        sys.exit(1)
+
 
 def step_train(data_dir: Path, work_dir: Path, num_epochs: int, port: int | None):
     """Train the 4D Gaussian model."""
@@ -84,7 +111,8 @@ def step_train(data_dir: Path, work_dir: Path, num_epochs: int, port: int | None
         f"--work-dir {work_dir} "
         f"--num-epochs {num_epochs} "
         f"{port_arg} "
-        f"data:custom --data.data-dir {data_dir}",
+        f"data:custom --data.data-dir {data_dir} "
+        f"--data.camera-type droid_recon",
         cwd=str(ROOT),
     )
 
@@ -100,7 +128,7 @@ def step_view(work_dir: Path, port: int):
 
 def main():
     parser = argparse.ArgumentParser(description="End-to-end 4D reconstruction")
-    parser.add_argument("--input", required=True, help="Path to input video file")
+    parser.add_argument("--input", default=None, help="Path to input video file")
     parser.add_argument(
         "--name",
         default=None,
@@ -112,6 +140,12 @@ def main():
         type=int,
         default=None,
         help="Extract frames at this FPS (default: use all frames)",
+    )
+    parser.add_argument(
+        "--max-dim",
+        type=int,
+        default=960,
+        help="Max pixel dimension for extracted frames (default: 960, None to disable)",
     )
     parser.add_argument(
         "--num-epochs", type=int, default=500, help="Training epochs (default: 500)"
@@ -127,12 +161,18 @@ def main():
     )
     args = parser.parse_args()
 
-    video_path = Path(args.input).resolve()
-    if not video_path.exists():
-        print(f"[run_4d] ERROR: Video not found: {video_path}")
+    if args.input:
+        video_path = Path(args.input).resolve()
+        if not video_path.exists():
+            print(f"[run_4d] ERROR: Video not found: {video_path}")
+            sys.exit(1)
+        scene_name = args.name or video_path.stem
+    elif args.name:
+        video_path = None
+        scene_name = args.name
+    else:
+        print("[run_4d] ERROR: --input or --name is required")
         sys.exit(1)
-
-    scene_name = args.name or video_path.stem
     data_dir = ROOT / "data" / "custom" / scene_name
     work_dir = ROOT / "work_dir" / scene_name
 
@@ -142,18 +182,13 @@ def main():
     print(f"[run_4d] Work dir: {work_dir}")
     print(f"[run_4d] GPU:      {args.gpu}")
 
-    skip_to = args.skip_to
-    if skip_to:
-        # Map skip_to to step index
-        skip_map = {"masks": 1, "preprocess": 2, "train": 3, "view": 4}
-        start = skip_map[skip_to]
-    else:
-        start = 0
+    skip_map = {"masks": 1, "preprocess": 2, "train": 3, "view": 4}
+    start = skip_map.get(args.skip_to, 0)
 
     img_dir = data_dir / "images"
 
     if start <= 0:
-        step_extract_frames(video_path, img_dir, args.fps)
+        step_extract_frames(video_path, img_dir, args.fps, args.max_dim)
     if start <= 1:
         step_create_masks(data_dir, args.gpu)
     if start <= 2:
