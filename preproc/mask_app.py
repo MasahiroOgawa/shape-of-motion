@@ -20,12 +20,13 @@ STEP_INSTRUCTIONS = {
         "or select a video from 'Video files' dropdown (left column) and click 'Extract frames'."
     ),
     "loaded": (
-        "== STEP 2 / 7 == Choose a reference frame.\n"
-        "Use the 'Frame index' slider to pick a frame where the foreground object is clearly visible.\n"
-        "Then click the >>> 'Get SAM features' <<< button."
+        "== STEP 2 / 7 == Choose a reference frame, then load SAM.\n"
+        "1. Use the 'Frame index' slider to pick a frame where the foreground object is clearly visible.\n"
+        "2. Click >>> 'Get SAM features' <<< (this loads the segmentation model; wait for Step 3 to appear).\n"
+        "NOTE: You MUST click 'Get SAM features' before clicking on the image!"
     ),
     "sam_ready": (
-        "== STEP 3 / 7 == Click on the foreground object.\n"
+        "== STEP 3 / 7 == SAM is ready! Now click on the foreground object.\n"
         "Click directly on the object in the 'Input Frame' image below.\n"
         "  - Green dots = include (positive, default mode)\n"
         "  - Red dots = exclude (click 'Toggle negative' first)\n"
@@ -131,10 +132,20 @@ class PromptGUI(object):
         self.image = image
         return image
 
+    @property
+    def sam_ready(self) -> bool:
+        return self.sam_model is not None and self.sam_model.is_image_set
+
     def get_sam_features(self) -> tuple[str, np.ndarray | None]:
         if self.image is None:
-            return "Please select an image first", None
-        self.lazy_init_sam_model()
+            return "ERROR: No image loaded. Use the Frame index slider first.", None
+        try:
+            self.lazy_init_sam_model()
+        except Exception as e:
+            return (
+                f"ERROR: Failed to load SAM model: {e}\n"
+                "Make sure checkpoints exist: run preproc/setup_dependencies.sh"
+            ), None
         assert self.sam_model is not None
         self.sam_model.set_image(self.image)
         return STEP_INSTRUCTIONS["sam_ready"], self.image
@@ -293,9 +304,9 @@ def make_demo(
         auto_loaded = num_imgs > 0
         start_instructions = (
             f"== STEP 2 / 7 == {num_imgs} images auto-loaded.\n"
-            "Use the 'Frame index' slider to pick a frame where the foreground "
-            "object is clearly visible.\n"
-            "Then click >>> 'Get SAM features' <<<."
+            "1. Use the 'Frame index' slider to pick a frame where the foreground object is clearly visible.\n"
+            "2. Click >>> 'Get SAM features' <<< (wait for Step 3 to appear).\n"
+            "NOTE: You MUST click 'Get SAM features' before clicking on the image!"
         )
         # For direct layout, masks go in root_dir/masks/ (no seq subdir)
         auto_mask_dir = f"{root_dir}/{mask_name}"
@@ -452,6 +463,11 @@ def make_demo(
             return slider, STEP_INSTRUCTIONS["loaded"]
 
         def get_select_coords(img, evt: gr.SelectData):
+            if not prompts.sam_ready:
+                gr.Warning(
+                    "Click 'Get SAM features' first, then click on the image."
+                )
+                return img
             i = evt.index[1]  # type: ignore
             j = evt.index[0]  # type: ignore
             index_mask = prompts.add_point(img, i, j)
