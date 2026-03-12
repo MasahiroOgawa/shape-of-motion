@@ -53,8 +53,7 @@ def step_create_masks(data_dir: Path, gpu: int):
     print("  1. Click on foreground objects (positive points)")
     print("  2. Right-click on background (negative points)")
     print("  3. Run tracker to propagate masks")
-    print("  4. Save masks and close the browser tab")
-    print("Press Ctrl+C in the terminal when done.")
+    print("  4. Save masks, then click 'Done & Exit' to continue")
     print("=" * 60 + "\n")
 
     run(

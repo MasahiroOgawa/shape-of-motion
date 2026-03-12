@@ -41,7 +41,7 @@ STEP_INSTRUCTIONS = {
     ),
     "saved": (
         "== STEP 7 / 7 == Done!\n"
-        "Masks saved. Go back to the terminal and press Ctrl+C to continue the pipeline."
+        "Masks saved. Click >>> 'Done & Exit' <<< to close and continue the pipeline."
     ),
 }
 
@@ -435,6 +435,13 @@ def make_demo(
                     ">>> Save masks <<<",
                     variant="primary",
                 )
+                exit_button = gr.Button(
+                    ">>> Done & Exit <<<",
+                    variant="stop",
+                )
+
+        def shutdown():
+            demo.close()
 
         def update_vid_root(root_dir, vid_name):
             vid_root = f"{root_dir}/{vid_name}"
@@ -607,6 +614,7 @@ def make_demo(
         save_button.click(
             prompts.save_masks_to_dir, [mask_dir_field], outputs=[instruction]
         )
+        exit_button.click(shutdown)
 
     return demo
 
