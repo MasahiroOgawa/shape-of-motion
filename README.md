@@ -53,6 +53,30 @@ uv sync
 uv pip install --no-build-isolation "gsplat @ git+https://github.com/nerfstudio-project/gsplat.git"
 ```
 
+## Download Preprocessing Checkpoints
+
+Before running the pipeline on custom videos, download the required model checkpoints:
+
+```bash
+cd preproc
+mkdir -p checkpoints/saves
+
+# SAM (Segment Anything) - for interactive mask annotation
+wget -P checkpoints/ https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth
+
+# XMem - for mask propagation across frames
+wget -P checkpoints/saves/ https://github.com/hkchengrex/XMem/releases/download/v1.0/XMem-s012.pth
+
+# DROID-SLAM - for camera pose estimation
+uv pip install gdown
+gdown -O checkpoints/ 1PpqVt1H4maBa_GbPJp4NwxRsd9jk-elh
+
+# BootsTAPIR - for 2D point tracking
+wget -P checkpoints/ https://storage.googleapis.com/dm-tapnet/bootstap/bootstapir_checkpoint_v2.pt
+
+cd ..
+```
+
 ## Usage
 
 ### End-to-End Pipeline (Video to 4D)
