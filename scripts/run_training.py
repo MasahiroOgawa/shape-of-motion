@@ -41,6 +41,25 @@ from flow3d.vis.utils import get_server
 torch.set_float32_matmul_precision("high")
 
 
+def warmup_gsplat_cuda():
+    """Pre-compile gsplat CUDA kernels to avoid freeze on first render."""
+    # Detect GPU compute capability for targeted compilation
+    if torch.cuda.is_available():
+        cap = torch.cuda.get_device_capability(0)
+        arch = f"{cap[0]}.{cap[1]}"
+        os.environ.setdefault("TORCH_CUDA_ARCH_LIST", arch)
+        guru.info(f"TORCH_CUDA_ARCH_LIST={os.environ['TORCH_CUDA_ARCH_LIST']}")
+
+    guru.info("Warming up gsplat CUDA kernels (JIT compile if needed)...")
+    try:
+        from gsplat.cuda._backend import _C  # noqa: F401
+
+        guru.info("gsplat CUDA backend ready")
+    except Exception as e:
+        guru.error(f"Failed to load gsplat CUDA backend: {e}")
+        raise
+
+
 def set_seed(seed):
     # Set the seed for generating random numbers
     np.random.seed(seed)
@@ -80,6 +99,13 @@ class TrainConfig:
 
 
 def main(cfg: TrainConfig):
+    # Set up file logging
+    os.makedirs(cfg.work_dir, exist_ok=True)
+    guru.add(f"{cfg.work_dir}/train.log", rotation="100 MB")
+
+    # Ensure gsplat CUDA kernels are compiled before any GPU work
+    warmup_gsplat_cuda()
+
     backup_code(cfg.work_dir)
     train_dataset, train_video_view, val_img_dataset, val_kpt_dataset = (
         get_train_val_datasets(cfg.data, load_val=True)
@@ -146,6 +172,8 @@ def main(cfg: TrainConfig):
         )
 
     guru.info(f"Starting training from {trainer.global_step=}")
+    consecutive_nan = 0
+    max_consecutive_nan = 50
     for epoch in (
         pbar := tqdm(
             range(start_epoch, cfg.num_epochs),
@@ -158,8 +186,14 @@ def main(cfg: TrainConfig):
             batch = to_device(batch, device)
             loss = trainer.train_step(batch)
             if np.isnan(loss):
-                guru.warning(f"OOM recovery at step {trainer.global_step}, skipping")
+                consecutive_nan += 1
+                if consecutive_nan >= max_consecutive_nan:
+                    guru.error(
+                        f"{max_consecutive_nan} consecutive NaN losses, aborting"
+                    )
+                    raise RuntimeError("Too many consecutive NaN losses")
                 continue
+            consecutive_nan = 0
             pbar.set_description(f"Loss: {loss:.6f}")
 
         if validator is not None:

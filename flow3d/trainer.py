@@ -201,8 +201,12 @@ class Trainer:
             torch.cuda.empty_cache()
             return self._abort_step()
         if loss.isnan():
-            guru.error(f"Loss is NaN at step {self.global_step}!!")
-            raise RuntimeError(f"NaN loss at step {self.global_step}")
+            guru.warning(
+                f"NaN loss at step {self.global_step}, skipping step"
+            )
+            for opt in self.optimizers.values():
+                opt.zero_grad(set_to_none=True)
+            return self._abort_step()
         try:
             loss.backward()
         except torch.cuda.OutOfMemoryError:
@@ -211,6 +215,9 @@ class Trainer:
             for opt in self.optimizers.values():
                 opt.zero_grad(set_to_none=True)
             return self._abort_step()
+
+        # Clip gradients to prevent NaN from gradient explosion
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
 
         for opt in self.optimizers.values():
             opt.step()

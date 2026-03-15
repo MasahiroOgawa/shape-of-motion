@@ -47,16 +47,8 @@ def masked_l1_loss(pred, gt, mask=None, normalize=True, quantile: float = 1.0):
         return trimmed_l1_loss(pred, gt, quantile)
     else:
         sum_loss = F.l1_loss(pred, gt, reduction="none").mean(dim=-1, keepdim=True)
-        # sum_loss.shape 
-        # block     [218255, 1]
-        # apple     [36673, 475, 1]     17,419,675
-        # creeper   [37587, 360, 1]     13,531,320
-        # backpack  [37828, 180, 1]     6,809,040
-        # quantile_mask = (
-        #     (sum_loss < torch.quantile(sum_loss, quantile)).squeeze(-1)
-        #     if quantile < 1
-        #     else torch.ones_like(sum_loss, dtype=torch.bool).squeeze(-1)
-        # )
+        if sum_loss.numel() == 0:
+            return torch.tensor(0.0, device=pred.device, requires_grad=True)
         # use torch.sort instead of torch.quantile when input too large
         if quantile < 1:
             num = sum_loss.numel()
@@ -68,7 +60,7 @@ def masked_l1_loss(pred, gt, mask=None, normalize=True, quantile: float = 1.0):
                 idxi = int(idxf)
                 threshold = sorted[idxi] + (sorted[idxi + 1] - sorted[idxi]) * (idxf - idxi)
             quantile_mask = (sum_loss < threshold).squeeze(-1)
-        else: 
+        else:
             quantile_mask = torch.ones_like(sum_loss, dtype=torch.bool).squeeze(-1)
 
         ndim = sum_loss.shape[-1]
@@ -100,6 +92,8 @@ def trimmed_mse_loss(pred, gt, quantile=0.9):
 
 def trimmed_l1_loss(pred, gt, quantile=0.9):
     loss = F.l1_loss(pred, gt, reduction="none").mean(dim=-1)
+    if loss.numel() == 0:
+        return torch.tensor(0.0, device=pred.device, requires_grad=True)
     loss_at_quantile = torch.quantile(loss, quantile)
     trimmed_loss = loss[loss < loss_at_quantile].mean()
     return trimmed_loss

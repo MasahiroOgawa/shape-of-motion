@@ -60,7 +60,15 @@ def process_sequence(
     track_model: str = "bootstapir",
     tapir_torch: bool = True,
 ):
-    dev_arg = f"CUDA_VISIBLE_DEVICES={gpu} PYTHONPATH=$(pwd)/UniDepth:$PYTHONPATH"
+    torch_lib = subprocess.check_output(
+        ["python", "-c", "import torch; print(torch.utils.cmake_prefix_path.replace('/share/cmake', '/lib'))"],
+        text=True,
+    ).strip()
+    dev_arg = (
+        f"CUDA_VISIBLE_DEVICES={gpu} "
+        f"LD_LIBRARY_PATH={torch_lib}:$LD_LIBRARY_PATH "
+        f"PYTHONPATH=$(pwd)/UniDepth:$PYTHONPATH"
+    )
 
     def run_step(cmd, name):
         print(f"\n[process] Running: {name}")
