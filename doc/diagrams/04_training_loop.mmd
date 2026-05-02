@@ -1,0 +1,25 @@
+flowchart TD
+    LD[Load checkpoint<br/>SceneModel + optimizers] --> EP[Epoch loop<br/>0 .. num_epochs]
+    EP --> BL[For each batch in train_loader]
+    BL --> TS[trainer.train_step batch]
+
+    TS --> MEM{GPU mem > 85 percent?}
+    MEM -- yes --> SKIP[empty_cache, skip step]
+    MEM -- no --> FWD[compute_losses<br/>see diagram 5]
+    FWD --> NAN{loss is NaN?}
+    NAN -- yes --> SKIP2[zero_grad, skip step]
+    NAN -- no --> BWD[loss.backward<br/>clip_grad_norm 1.0]
+    BWD --> STEP[optimizer.step + sched.step<br/>per param group]
+    STEP --> CTRL[run_control_steps<br/>see diagram 6]
+    CTRL --> CKP{step %% 200 == 0?}
+    CKP -- yes --> SAVE[save last.ckpt]
+    CKP -- no --> NEXT[next batch]
+    SAVE --> NEXT
+    SKIP --> NEXT
+    SKIP2 --> NEXT
+
+    NEXT --> BL
+    BL -.epoch end.-> VAL{epoch %% validate_every?}
+    VAL -- yes --> RUNVAL[validator.validate<br/>PSNR / SSIM / LPIPS / PCK<br/>+ save_train_videos]
+    VAL -- no --> EP
+    RUNVAL --> EP

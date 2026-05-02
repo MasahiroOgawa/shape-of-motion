@@ -1,0 +1,6 @@
+flowchart TD
+    INP[inputs:<br/>time t,<br/>K, w2c, img_wh,<br/>target_ts, target_w2cs<br/>for flow / track loss]
+    INP --> CP[compute_poses_fg t<br/>fg means + quats from<br/>motion_bases x motion_coefs]
+    CP --> CAT[concat with bg means/quats<br/>if bg present]
+    CAT --> RAST[gsplat rasterization<br/>3DGS or 2DGS variant<br/>uses K, w2c, target_ts/w2cs]
+    RAST --> OUT[outputs:<br/>img + acc + depth<br/>+ tracks_3d at target_ts<br/>+ optional normals + mask]

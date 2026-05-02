@@ -1,0 +1,10 @@
+flowchart TD
+    A[Input: single video<br/>my_video.mp4] --> B[Step 1: Extract frames<br/>ffmpeg -> images/]
+    B --> C[Step 2: Mask annotation<br/>Gradio GUI<br/>SAM + XMem propagation]
+    C --> D[Step 3: Preprocess<br/>process_custom.py]
+    D --> E[Step 4: Train 4D Gaussian model<br/>run_training.py]
+    E --> F[Step 5: Launch viewer<br/>run_rendering.py]
+    F --> G[Interactive 4D scene<br/>localhost:8080]
+
+    style C fill:#fde,stroke:#a33
+    style E fill:#dfe,stroke:#3a3

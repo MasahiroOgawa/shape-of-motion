@@ -1,0 +1,21 @@
+flowchart TD
+    IMG[images/] --> MD[compute_metric_depth.py<br/>UniDepth]
+    MD --> MDOUT[unidepth_disp/<br/>+ unidepth_intrins.json]
+
+    IMG --> MOND[compute_depth.py<br/>Depth-Anything]
+    MDOUT -.aligns to.-> MOND
+    MOND --> ALN[aligned_depth_anything/]
+
+    IMG --> SLAM[recon_with_depth.py<br/>DROID-SLAM]
+    ALN --> SLAM
+    MDOUT -.calib.-> SLAM
+    SLAM --> POSES[droid_recon.npy<br/>camera poses + intrinsics]
+
+    IMG --> TRK[compute_tracks_torch.py<br/>BootsTAPIR]
+    MASKS[masks/] --> TRK
+    TRK --> TRKS[bootstapir/<br/>2D point tracks + visibility]
+
+    POSES --> READY[ready for training]
+    ALN --> READY
+    TRKS --> READY
+    MASKS --> READY

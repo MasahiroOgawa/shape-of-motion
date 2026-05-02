@@ -1,0 +1,34 @@
+flowchart TD
+    BATCH[batch: imgs, masks, depths,<br/>Ks, w2cs, ts,<br/>target_ts/Ks/w2cs,<br/>query_tracks_2d,<br/>target_tracks_2d + visibles + confidences + depths] --> POSE[compute_poses_all ts<br/>fg means/quats at t<br/>via motion_bases x coefs]
+
+    POSE --> TGTPOSE[compute_poses_all target_ts<br/>fg means at every target frame]
+
+    TGTPOSE --> RAS[gsplat rasterization<br/>per batch element:<br/>RGB + alpha + depth<br/>+ flow target_means -> 2D tracks<br/>+ optional 2DGS normals]
+
+    subgraph PHOTO [Photometric and geometric losses from RAS]
+        direction TB
+        RGB[L_rgb = 0.8 L1 + 0.2 1-SSIM, w_rgb]
+        MSK[L_mask = MSE acc, mask, w_mask]
+        TRK[L_track2d = masked L1<br/>projected pred tracks vs GT,<br/>weighted by confidence x exp-frame-interval, w_track]
+        DPT[L_depth = masked L1<br/>1/pred_depth vs 1/gt_depth, w_depth_reg]
+        DPTC[L_depth_const = masked L1<br/>1/pred_track_depth vs 1/gt_track_depth, w_depth_const]
+        DPTG[L_depth_grad = gradient L1<br/>on disparities, q=0.95, w_depth_grad]
+        NRM[optional 2DGS L_normal<br/>1 - cos rend_normal, surf_normal, weight 0.05]
+        RGB --> MSK --> TRK --> DPT --> DPTC --> DPTG --> NRM
+    end
+
+    RAS --> PHOTO
+
+    subgraph REG [Smoothness and regularization losses from POSE]
+        direction TB
+        SM1[L_smooth_bases<br/>SE3 smoothness on motion_bases, w_smooth_bases]
+        SM2[L_smooth_tracks<br/>2nd-derivative smoothness on FG means<br/>over t-1, t, t+1, w_smooth_tracks]
+        ZAC[L_z_accel<br/>camera-z acceleration penalty, w_z_accel]
+        SCV[L_scale_var<br/>variance of exp scales, w_scale_var]
+        SM1 --> SM2 --> ZAC --> SCV
+    end
+
+    PHOTO --> REG
+
+    REG --> SUM[loss = weighted sum]
+    SUM --> RET[return loss + stats]

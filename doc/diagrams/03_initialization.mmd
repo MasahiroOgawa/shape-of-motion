@@ -1,0 +1,28 @@
+flowchart TD
+    DS[train_dataset<br/>get_tracks_3d, get_bkgd_points] --> T3D[TrackObservations<br/>xyz, visibles, confidences, colors]
+
+    T3D --> CT[Pick canonical frame<br/>cano_t = argmax #visible tracks]
+    CT --> OUT[Outlier removal<br/>distance from scene median<br/>+ require visibility]
+
+    OUT --> CLU[Cluster tracks<br/>KMeans on canonical xyz<br/>-> num_motion_bases clusters]
+
+    CLU --> PROC[For each cluster, each frame t:<br/>weighted Procrustes<br/>cano_t -> t<br/>= per-basis SE3 rot+transl]
+    PROC --> MB[MotionBases<br/>rots: K x T x 6<br/>transls: K x T x 3]
+
+    CLU --> COEF[motion_coefs<br/>10 * exp -dist to cluster centers<br/>per Gaussian, K-dim]
+
+    T3D --> FG[init_fg_from_tracks_3d<br/>means = xyz at cano_t<br/>colors = logit RGB<br/>scales = log knn-3 dist<br/>quats = random<br/>opacities = logit 0.7]
+    COEF --> FG
+
+    BGP[StaticObservations<br/>get_bkgd_points] --> BG[init_bg<br/>means, colors, knn scales,<br/>quats from normals]
+
+    FG --> OPT[run_initial_optim<br/>500 iters Adam<br/>refine motion_bases + means + coefs<br/>vs reprojected 2D tracks + smoothness]
+    MB --> OPT
+    T3D --> OPT
+
+    OPT --> CAM[init_trainable_poses<br/>CameraPoses from w2cs]
+
+    OPT --> SM[SceneModel<br/>fg + motion_bases + bg + cameras]
+    BG --> SM
+    CAM --> SM
+    SM --> CKPT[checkpoints/last.ckpt]

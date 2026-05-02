@@ -1,0 +1,18 @@
+flowchart TD
+    GS[global_step] --> GATE{step > warmup<br/>and step %% control_every == 0<br/>and step < stop_control_steps?}
+    GATE -- no --> END[skip]
+    GATE -- yes --> PREP[_prepare_control_step<br/>accumulate per-Gaussian:<br/>xys grad norm, vis_count, max_radii]
+
+    PREP --> DENSE{step < stop_densify<br/>and not in opacity-reset window?}
+    DENSE -- yes --> DCTL[_densify_control_step<br/>grad too high AND<br/>scale too big -> SPLIT,<br/>scale small -> DUPLICATE<br/>clamp to max_num_gaussians<br/>skip if GPU mem > 70 percent]
+    DENSE -- no --> CULL
+
+    DCTL --> CULL{step %% reset > 3*num_frames?}
+    CULL -- yes --> CCTL[_cull_control_step<br/>cull if opacity < threshold<br/>or scale too big<br/>or screen radius too big]
+    CULL -- no --> RESET
+
+    CCTL --> RESET{step %% reset_opacity_every == 0?}
+    RESET -- yes --> RCTL[_reset_opacity_control_step<br/>logit 0.8 * cull_opacity_threshold<br/>+ zero optimizer state]
+    RESET -- no --> CLR
+    RCTL --> CLR[zero running stats]
+    CLR --> END
