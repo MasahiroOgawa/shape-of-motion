@@ -1,0 +1,43 @@
+diff --git a/unidepth/layers/nystrom_attention.py b/unidepth/layers/nystrom_attention.py
+index 9f7476f..923e507 100644
+--- a/unidepth/layers/nystrom_attention.py
++++ b/unidepth/layers/nystrom_attention.py
+@@ -4,7 +4,37 @@ import torch
+ import torch.nn as nn
+ import torch.nn.functional as F
+ from einops import rearrange
+-from xformers.components.attention import NystromAttention
++# xformers removed `xformers.components` (NystromAttention among it) after 0.0.22, so
++# this import fails on any modern install: "cannot import name 'NystromAttention'".
++# Nystrom is a LOW-RANK APPROXIMATION of full attention, so substituting exact
++# scaled-dot-product attention returns the quantity Nystrom was estimating -- equal or
++# better in accuracy, at O(n^2) instead of O(n * landmarks). At UniDepth's decoder
++# token counts that cost is irrelevant.
++try:
++    from xformers.components.attention import NystromAttention
++except ImportError:
++    class NystromAttention(nn.Module):
++        """Exact attention with the xformers NystromAttention call signature."""
++
++        def __init__(self, num_landmarks: int = 128, num_heads: int = 8,
++                     dropout: float = 0.0, **_):
++            super().__init__()
++            self.dropout = dropout
++
++        def forward(self, q, k, v, key_padding_mask=None):
++            # (b, n, h, d) -> scaled_dot_product_attention wants (b, h, n, d)
++            qt, kt, vt = (t.transpose(1, 2) for t in (q, k, v))
++            mask = None
++            if key_padding_mask is not None:
++                mask = key_padding_mask
++                if mask.dim() == 2:                       # (b, n) -> broadcastable
++                    mask = mask[:, None, None, :]
++                if mask.dtype != torch.bool:
++                    mask = mask.to(torch.bool)
++            out = F.scaled_dot_product_attention(
++                qt, kt, vt, attn_mask=mask,
++                dropout_p=self.dropout if self.training else 0.0)
++            return out.transpose(1, 2)
+ 
+ from .attention import AttentionBlock
+ 

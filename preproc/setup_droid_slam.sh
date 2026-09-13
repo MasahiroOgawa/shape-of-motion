@@ -25,6 +25,14 @@
 #      only says "Error compiling objects for extension", so the real cause is
 #      invisible unless you read ninja's own output.
 #
+# Also patches UniDepth, which DROID-SLAM depends on here: launch_slam.py takes its
+# intrinsics from `unidepth_intrins`, so a broken UniDepth blocks camera estimation.
+# xformers deleted `xformers.components` (NystromAttention with it) after 0.0.22, and
+# UniDepth's decoder constructs NystromBlock unconditionally -- so `import unidepth`
+# fails outright on any modern install. The patch substitutes exact scaled-dot-product
+# attention: Nystrom is a LOW-RANK APPROXIMATION of full attention, so computing it
+# exactly is equal or better in accuracy, at O(n^2) rather than O(n * landmarks).
+#
 # Usage:  bash preproc/setup_droid_slam.sh
 # Then :  export PYTHONPATH=$PWD/preproc/DROID-SLAM:$PWD/preproc/DROID-SLAM/thirdparty/lietorch
 set -euo pipefail
@@ -44,6 +52,24 @@ for p in lietorch-torch2:thirdparty/lietorch droid-slam-torch2:.; do
     echo "   ${p%%:*} already applied (or does not apply) -- skipping"
   fi
 done
+
+echo "== 2b/4  UniDepth xformers patch =="
+UD="$ROOT/preproc/UniDepth"
+UD_PATCH="$ROOT/preproc/patches/unidepth-xformers.patch"
+if [ -d "$UD/.git" ] && [ -f "$UD_PATCH" ]; then
+  if git -C "$UD" apply --check "$UD_PATCH" 2>/dev/null; then
+    git -C "$UD" apply "$UD_PATCH"; echo "   applied unidepth-xformers"
+  else
+    echo "   unidepth-xformers already applied -- skipping"
+  fi
+  # The installed copy is what `import unidepth` resolves to, and it is a real install
+  # rather than an editable one, so patching only the source tree changes nothing.
+  INSTALLED="$(cd "$ROOT" && python -c "import unidepth,os;print(os.path.dirname(unidepth.__file__))" 2>/dev/null || true)"
+  if [ -n "$INSTALLED" ] && [ -d "$INSTALLED" ]; then
+    cp "$UD/unidepth/layers/nystrom_attention.py" "$INSTALLED/layers/nystrom_attention.py"
+    echo "   synced into $INSTALLED"
+  fi
+fi
 
 echo "== 3/4  toolchain =="
 # Prefer an unversioned c++ if the distro has one; otherwise pin the newest g++-N.
