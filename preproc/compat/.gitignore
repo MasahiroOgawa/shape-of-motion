@@ -1,0 +1,3 @@
+# Machine-specific symlinks into /usr/bin -- regenerate with make_cxx_shim.sh.
+# Committing them would bake this host's compiler path into the repo.
+bin/

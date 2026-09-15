@@ -33,6 +33,12 @@
 # attention: Nystrom is a LOW-RANK APPROXIMATION of full attention, so computing it
 # exactly is equal or better in accuracy, at O(n^2) rather than O(n * landmarks).
 #
+# Two more gaps are covered by preproc/compat rather than by patches, because they are
+# environment shims, not source fixes: a pure-PyTorch torch_scatter (no wheel exists for
+# torch>=2.14+cu130, and DROID-SLAM uses only two ops that upstream itself implements in
+# plain PyTorch), and unversioned c++/cc symlinks that nvcc and ninja invoke by bare name.
+# See preproc/compat/README.md. Put compat on PYTHONPATH and compat/bin on PATH.
+#
 # Usage:  bash preproc/setup_droid_slam.sh
 # Then :  export PYTHONPATH=$PWD/preproc/DROID-SLAM:$PWD/preproc/DROID-SLAM/thirdparty/lietorch
 set -euo pipefail
@@ -43,7 +49,12 @@ echo "== 1/4  nested submodules (recursive) =="
 git -C "$D" submodule update --init --recursive
 
 echo "== 2/4  PyTorch 2.x source patches =="
-for p in lietorch-torch2:thirdparty/lietorch droid-slam-torch2:.; do
+# Blackwell (sm_120) needs two more on top of the torch-2 compat patches: CUDA 13
+# dropped compute_60/61/70, which both setup.py files still hardcode, so nvcc fails
+# outright until the gencode list is replaced with sm_75..90 + sm_120.
+for p in lietorch-torch2:thirdparty/lietorch droid-slam-torch2:. \
+         lietorch-blackwell-gencode:thirdparty/lietorch \
+         droid-slam-blackwell-gencode:.; do
   patch_file="$ROOT/preproc/patches/${p%%:*}.patch"; target="$D/${p##*:}"
   [ -f "$patch_file" ] || { echo "   missing $patch_file"; exit 1; }
   if git -C "$target" apply --check "$patch_file" 2>/dev/null; then
@@ -55,18 +66,31 @@ done
 
 echo "== 2b/4  UniDepth xformers patch =="
 UD="$ROOT/preproc/UniDepth"
-UD_PATCH="$ROOT/preproc/patches/unidepth-xformers.patch"
-if [ -d "$UD/.git" ] && [ -f "$UD_PATCH" ]; then
-  if git -C "$UD" apply --check "$UD_PATCH" 2>/dev/null; then
-    git -C "$UD" apply "$UD_PATCH"; echo "   applied unidepth-xformers"
-  else
-    echo "   unidepth-xformers already applied -- skipping"
-  fi
+if [ -d "$UD/.git" ]; then
+  # Two separate breakages. xformers deleted NystromAttention after 0.0.22 (import
+  # fails outright); and on Blackwell its memory_efficient_attention has NO kernel for
+  # this call at all -- the flash backends need bf16/fp16 while UniDepth runs fp32, and
+  # the cutlass backend refuses any device above capability 9.0. Both are replaced with
+  # PyTorch's own SDPA, which supports Blackwell and computes the same attention.
+  for up in unidepth-xformers unidepth-blackwell-sdpa; do
+    UD_PATCH="$ROOT/preproc/patches/${up}.patch"
+    [ -f "$UD_PATCH" ] || continue
+    if git -C "$UD" apply --check "$UD_PATCH" 2>/dev/null; then
+      git -C "$UD" apply "$UD_PATCH"; echo "   applied $up"
+    else
+      echo "   $up already applied -- skipping"
+    fi
+  done
   # The installed copy is what `import unidepth` resolves to, and it is a real install
   # rather than an editable one, so patching only the source tree changes nothing.
-  INSTALLED="$(cd "$ROOT" && python -c "import unidepth,os;print(os.path.dirname(unidepth.__file__))" 2>/dev/null || true)"
+  # unidepth ships no top-level __init__.py, so it imports as a NAMESPACE package and
+  # `unidepth.__file__` is None -- deriving the path from it yields "" and the sync below
+  # silently does nothing. __path__ is the only reliable locator.
+  INSTALLED="$(cd "$ROOT" && python -c "import unidepth;print(list(unidepth.__path__)[0])" 2>/dev/null || true)"
   if [ -n "$INSTALLED" ] && [ -d "$INSTALLED" ]; then
     cp "$UD/unidepth/layers/nystrom_attention.py" "$INSTALLED/layers/nystrom_attention.py"
+    cp "$UD/unidepth/models/backbones/metadinov2/attention.py" \
+       "$INSTALLED/models/backbones/metadinov2/attention.py"
     echo "   synced into $INSTALLED"
   fi
 fi

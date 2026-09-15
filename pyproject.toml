@@ -32,6 +32,7 @@ dependencies = [
     "timm>=1.0.25",
     "xformers>=0.0.29.post3",
     "wandb>=0.25.1",
+    "nvidia-cuda-nvcc>=13.4.59",
 ]
 
 [build-system]
@@ -53,9 +54,13 @@ preproc = [
 ]
 dev = ["black==24.4.2", "isort==5.13.2"]
 
+# cu130, not cu124: Blackwell GPUs (RTX 50-series, compute capability 12.0) have no
+# kernels in any CUDA 12.4 build, so every custom op dies with "no kernel image is
+# available for execution on the device" -- while ordinary ops still run, so the
+# failure is partial and a pipeline can produce plausible output from a broken stage.
 [[tool.uv.index]]
-name = "pytorch-cu12"
-url = "https://download.pytorch.org/whl/cu124"
+name = "pytorch-cu13"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [[tool.uv.index]]
@@ -64,6 +69,6 @@ url = "https://pypi.nvidia.com"
 explicit = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-cu12" }
-torchvision = { index = "pytorch-cu12" }
+torch = { index = "pytorch-cu13" }
+torchvision = { index = "pytorch-cu13" }
 cuml-cu12 = { index = "nvidia" }

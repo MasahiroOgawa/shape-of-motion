@@ -1,0 +1,28 @@
+diff --git a/unidepth/models/backbones/metadinov2/attention.py b/unidepth/models/backbones/metadinov2/attention.py
+index cf3c886..8e36689 100644
+--- a/unidepth/models/backbones/metadinov2/attention.py
++++ b/unidepth/models/backbones/metadinov2/attention.py
+@@ -11,6 +11,7 @@
+ import logging
+ 
+ import torch.nn as nn
++import torch.nn.functional as F
+ from torch import Tensor
+ 
+ logger = logging.getLogger("dinov2")
+@@ -76,7 +77,14 @@ class MemEffAttention(Attention):
+ 
+         q, k, v = unbind(qkv, 2)
+ 
+-        x = memory_efficient_attention(q, k, v, attn_bias=attn_bias)
++        # xformers has NO memory_efficient_attention kernel for this combination on
++        # Blackwell (sm_120): its flash backends require bf16/fp16 while UniDepth runs
++        # fp32, and the cutlass backend refuses any device with capability > 9.0. The
++        # result is NotImplementedError at the first forward pass. PyTorch's own SDPA
++        # supports Blackwell and computes exactly the same attention, so use it.
++        qt, kt, vt = (t.transpose(1, 2) for t in (q, k, v))   # (B,N,H,D)->(B,H,N,D)
++        x = F.scaled_dot_product_attention(qt, kt, vt, attn_mask=attn_bias)
++        x = x.transpose(1, 2)
+         x = x.reshape([B, N, C])
+ 
+         x = self.proj(x)
